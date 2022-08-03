@@ -39,7 +39,6 @@ pub struct SwarmOptions {
     pub relay: bool,
     /// Enables dcutr
     pub dcutr: bool,
-
 }
 
 impl From<&IpfsOptions> for SwarmOptions {
