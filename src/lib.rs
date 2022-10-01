@@ -344,6 +344,8 @@ enum IpfsEvent {
     Listeners(Channel<Vec<Multiaddr>>),
     /// Connections
     Connections(Channel<Vec<Connection>>),
+    /// Connected ppers
+    Connected(Channel<Vec<PeerId>>),
     /// Disconnect
     Disconnect(MultiaddrWithPeerId, Channel<()>),
     /// Ban Peer
@@ -874,6 +876,20 @@ impl<Types: IpfsTypes> Ipfs<Types> {
             self.to_task
                 .clone()
                 .send(IpfsEvent::Connections(tx))
+                .await?;
+            rx.await?
+        }
+        .instrument(self.span.clone())
+        .await
+    }
+
+    /// Returns the connected peers
+    pub async fn connected(&self) -> Result<Vec<PeerId>, Error> {
+        async move {
+            let (tx, rx) = oneshot_channel();
+            self.to_task
+                .clone()
+                .send(IpfsEvent::Connected(tx))
                 .await?;
             rx.await?
         }
@@ -2125,6 +2141,10 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     }
                     IpfsEvent::Connections(ret) => {
                         let connections = self.swarm.behaviour_mut().connections();
+                        ret.send(Ok(connections.collect())).ok();
+                    }
+                    IpfsEvent::Connected(ret) => {
+                        let connections = self.swarm.connected_peers().cloned();
                         ret.send(Ok(connections.collect())).ok();
                     }
                     IpfsEvent::Disconnect(addr, ret) => {
