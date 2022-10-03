@@ -2105,7 +2105,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         }
                         event => trace!("identify: {:?}", event),
                     },
-                    _ => trace!("{:?}", inner),
+                    _ => trace!("Swarm event: {:?}", inner),
                 }
             }
 
