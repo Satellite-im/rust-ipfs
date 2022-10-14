@@ -113,14 +113,14 @@ pub use libp2p::{
 };
 
 use libp2p::{
-    identify::{IdentifyEvent, IdentifyInfo},
+    identify::{Event as IdentifyEvent, Info as IdentifyInfo},
     kad::{
         AddProviderError, AddProviderOk, BootstrapError, BootstrapOk, GetClosestPeersError,
         GetClosestPeersOk, GetProvidersError, GetProvidersOk, GetRecordError, GetRecordOk,
         KademliaEvent::*, PutRecordError, PutRecordOk, QueryResult::*, Record, KademliaConfig,
     },
     mdns::MdnsEvent,
-    ping::PingSuccess,
+    ping::Success as PingSuccess,
     swarm::{dial_opts::DialOpts, DialError},
 };
 
@@ -150,6 +150,7 @@ impl RepoTypes for TestTypes {
 }
 
 /// Ipfs node options used to configure the node to be created with [`UninitializedIpfs`].
+// TODO: Refactor
 #[derive(Clone)]
 pub struct IpfsOptions {
     /// The path of the ipfs repo (blockstore and datastore).
@@ -2014,7 +2015,7 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         BitswapEvent::ReceivedCancel(..) => {}
                     },
                     SwarmEvent::Behaviour(BehaviourEvent::Ping(event)) => match event {
-                        libp2p::ping::PingEvent {
+                        libp2p::ping::Event {
                             peer,
                             result: Result::Ok(PingSuccess::Ping { rtt }),
                         } => {
@@ -2025,28 +2026,28 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                             );
                             self.swarm.behaviour_mut().swarm.set_rtt(&peer, rtt);
                         }
-                        libp2p::ping::PingEvent {
+                        libp2p::ping::Event {
                             peer,
                             result: Result::Ok(PingSuccess::Pong),
                         } => {
                             trace!("ping: pong from {}", peer);
                         }
-                        libp2p::ping::PingEvent {
+                        libp2p::ping::Event {
                             peer,
-                            result: Result::Err(libp2p::ping::PingFailure::Timeout),
+                            result: Result::Err(libp2p::ping::Failure::Timeout),
                         } => {
                             trace!("ping: timeout to {}", peer);
                             self.swarm.behaviour_mut().remove_peer(&peer);
                         }
-                        libp2p::ping::PingEvent {
+                        libp2p::ping::Event {
                             peer,
-                            result: Result::Err(libp2p::ping::PingFailure::Other { error }),
+                            result: Result::Err(libp2p::ping::Failure::Other { error }),
                         } => {
                             error!("ping: failure with {}: {}", peer.to_base58(), error);
                         }
-                        libp2p::ping::PingEvent {
+                        libp2p::ping::Event {
                             peer,
-                            result: Result::Err(libp2p::ping::PingFailure::Unsupported),
+                            result: Result::Err(libp2p::ping::Failure::Unsupported),
                         } => {
                             error!("ping: failure with {}: unsupported", peer.to_base58());
                         }
