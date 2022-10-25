@@ -117,9 +117,10 @@ use libp2p::{
     kad::{
         AddProviderError, AddProviderOk, BootstrapError, BootstrapOk, GetClosestPeersError,
         GetClosestPeersOk, GetProvidersError, GetProvidersOk, GetRecordError, GetRecordOk,
-        KademliaEvent::*, PutRecordError, PutRecordOk, QueryResult::*, Record, KademliaConfig,
+        KademliaConfig, KademliaEvent::*, PutRecordError, PutRecordOk, QueryResult::*, Record,
     },
     mdns::MdnsEvent,
+    ping::Config as PingConfig,
     ping::Success as PingSuccess,
     swarm::{dial_opts::DialOpts, DialError},
 };
@@ -176,6 +177,9 @@ pub struct IpfsOptions {
     /// Enables ipv6 for mdns
     pub mdns_ipv6: bool,
 
+    /// Keep connection alive
+    pub keep_alive: bool,
+
     /// Enables dcutr
     pub dcutr: bool,
 
@@ -211,9 +215,12 @@ pub struct IpfsOptions {
 
     /// Swarm configuration
     pub swarm_configuration: Option<crate::p2p::SwarmConfig>,
-    
+
     /// Kad configuration
     pub kad_configuration: Option<KademliaConfig>,
+
+    /// Ping Configuration
+    pub ping_configuration: Option<PingConfig>,
 
     /// The span for tracing purposes, `None` value is converted to `tracing::trace_span!("ipfs")`.
     ///
@@ -234,12 +241,14 @@ impl Default for IpfsOptions {
             bootstrap: Default::default(),
             relay: Default::default(),
             relay_addr: Default::default(),
+            keep_alive: Default::default(),
             relay_server: Default::default(),
             relay_server_config: Default::default(),
             store_all_peerinfo: Default::default(),
             kad_configuration: Default::default(),
             // default to lan kad for go-ipfs use in tests
             kad_protocol: None,
+            ping_configuration: Default::default(),
             listening_addrs: vec![
                 "/ip4/0.0.0.0/tcp/0".parse().unwrap(),
                 "/ip6/::/tcp/0".parse().unwrap(),
@@ -486,7 +495,7 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
         // FIXME: mutating options above is an unfortunate side-effect of this call, which could be
         // reordered for less error prone code.
         let swarm_options = SwarmOptions::from(&options);
-        
+
         let swarm_config = options.swarm_configuration.unwrap_or_default();
         let transport_config = options.transport_configuration.unwrap_or_default();
         let swarm = create_swarm(swarm_options, swarm_config, transport_config, exec_span)
@@ -888,10 +897,7 @@ impl<Types: IpfsTypes> Ipfs<Types> {
     pub async fn connected(&self) -> Result<Vec<PeerId>, Error> {
         async move {
             let (tx, rx) = oneshot_channel();
-            self.to_task
-                .clone()
-                .send(IpfsEvent::Connected(tx))
-                .await?;
+            self.to_task.clone().send(IpfsEvent::Connected(tx)).await?;
             rx.await?
         }
         .instrument(self.span.clone())
@@ -2149,7 +2155,11 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         ret.send(Ok(connections.collect())).ok();
                     }
                     IpfsEvent::Disconnect(addr, ret) => {
-                        let _ = ret.send(self.swarm.disconnect_peer_id(addr.peer_id).map_err(|_| anyhow::anyhow!("Peer was not connected")));
+                        let _ = ret.send(
+                            self.swarm
+                                .disconnect_peer_id(addr.peer_id)
+                                .map_err(|_| anyhow::anyhow!("Peer was not connected")),
+                        );
                     }
                     IpfsEvent::Ban(peer, ret) => {
                         self.swarm.ban_peer_id(peer);
