@@ -686,7 +686,7 @@ mod tests {
         multihash::{Code, MultihashDigest},
         IpldCodec,
     };
-    use multihash::Sha2_256;
+
     use std::env::temp_dir;
 
     #[tokio::test]
