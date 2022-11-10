@@ -2,6 +2,7 @@ use crate::p2p::{MultiaddrWithPeerId, MultiaddrWithoutPeerId};
 use crate::subscription::{SubscriptionFuture, SubscriptionRegistry};
 use core::task::{Context, Poll};
 use libp2p::core::{connection::ConnectionId, ConnectedPoint, Multiaddr, PeerId};
+use libp2p::identify::Info as IdentifyInfo;
 use libp2p::swarm::{
     self,
     dial_opts::{DialOpts, PeerCondition},
@@ -33,7 +34,8 @@ pub struct SwarmApi {
 
     // FIXME: anything related to this is probably wrong, and doesn't behave as one would expect
     // from the method names
-    peers: HashSet<PeerId>,
+    peers: HashMap<PeerId, Option<IdentifyInfo>>,
+
     connect_registry: SubscriptionRegistry<(), String>,
     connections: HashMap<MultiaddrWithoutPeerId, PeerId>,
     roundtrip_times: HashMap<PeerId, Duration>,
@@ -53,11 +55,24 @@ pub struct SwarmApi {
 
 impl SwarmApi {
     pub fn add_peer(&mut self, peer_id: PeerId) {
-        self.peers.insert(peer_id);
+        self.peers.insert(peer_id, None);
     }
 
-    pub fn peers(&self) -> impl Iterator<Item = &PeerId> {
+    //Note: This may get pushed into its own behaviour in the near future
+    pub fn inject_identify_info(&mut self, peer_id: PeerId, peer_info: IdentifyInfo) {
+        self.peers
+            .entry(peer_id)
+            .and_modify(|e| *e = Some(peer_info.clone()))
+            .or_insert(Some(peer_info));
+    }
+
+    pub fn peers(&self) -> impl Iterator<Item = (&PeerId, &Option<IdentifyInfo>)> {
         self.peers.iter()
+    }
+
+    //Note: This may get pushed into its own behaviour in the near future
+    pub fn identify_info(&self) -> impl Iterator<Item = &IdentifyInfo> {
+        self.peers.iter().map(|(_, v)| v).filter_map(|s| s.as_ref())
     }
 
     pub fn remove_peer(&mut self, peer_id: &PeerId) {
@@ -174,7 +189,10 @@ impl NetworkBehaviour for SwarmApi {
             }
         };
 
-        self.peers.insert(*peer_id);
+        if let Entry::Vacant(entry) = self.peers.entry(*peer_id) {
+            entry.insert(None);
+        };
+
         let connections = self.connected_peers.entry(*peer_id).or_default();
         connections.push(addr.clone());
 
@@ -286,6 +304,11 @@ impl NetworkBehaviour for SwarmApi {
             );
         }
 
+        //TODO: Maybe mark the peer for removal instead of instantly removing the peer and their info
+        //Note: This may get pushed into its own behaviour in the near future
+        self.peers.remove(peer_id);
+
+        self.roundtrip_times.remove(peer_id);
         self.connected_times.remove(peer_id);
 
         if let ConnectedPoint::Dialer { .. } = endpoint {
@@ -388,7 +411,7 @@ impl NetworkBehaviour for SwarmApi {
         _: &mut impl PollParameters,
     ) -> Poll<NetworkBehaviourAction> {
         if let Some(event) = self.events.pop_front() {
-            return Poll::Ready(event)
+            return Poll::Ready(event);
         }
         Poll::Pending
     }

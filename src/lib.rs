@@ -195,10 +195,6 @@ pub struct IpfsOptions {
     /// Relay server to use
     pub relay_addr: Option<Multiaddr>,
 
-    /// A option to store [`PeerInfo`] only when calling the function. If false, it will be stored when using [`Ipfs::find_peer_info`], otherwise it will store all incoming information
-    /// Note: This may change in the future as this may not be a viable option in the long run.
-    pub store_all_peerinfo: bool,
-
     /// Custom Kademlia protocol name. When set to `None`, the global DHT name is used instead of
     /// the LAN dht name.
     ///
@@ -247,7 +243,6 @@ impl Default for IpfsOptions {
             keep_alive: Default::default(),
             relay_server: Default::default(),
             relay_server_config: Default::default(),
-            store_all_peerinfo: Default::default(),
             kad_configuration: Default::default(),
             // default to lan kad for go-ipfs use in tests
             kad_protocol: None,
@@ -508,13 +503,10 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
 
         let autonat_limit = Arc::new(AtomicU64::new(64));
         let autonat_counter = Arc::new(Default::default());
-        let identity_registry = Default::default();
         let kad_subscriptions = Default::default();
 
         let IpfsOptions {
-            listening_addrs,
-            store_all_peerinfo,
-            ..
+            listening_addrs, ..
         } = options;
 
         let mut fut = IpfsFuture {
@@ -524,10 +516,8 @@ impl<Types: IpfsTypes> UninitializedIpfs<Types> {
             listening_addresses: HashMap::with_capacity(listening_addrs.len()),
             kad_subscriptions,
             repo,
-            identity_registry,
             autonat_limit,
             autonat_counter,
-            store_all_peerinfo,
         };
 
         for addr in listening_addrs.into_iter() {
@@ -1523,11 +1513,9 @@ struct IpfsFuture<Types: IpfsTypes> {
     from_facade: Fuse<Receiver<IpfsEvent>>,
     listening_addresses: HashMap<Multiaddr, (ListenerId, Option<Channel<Multiaddr>>)>,
     repo: Arc<Repo<Types>>,
-    identity_registry: HashMap<PeerId, Option<PeerInfo>>,
     kad_subscriptions: SubscriptionRegistry<KadResult, String>,
     autonat_limit: Arc<AtomicU64>,
     autonat_counter: Arc<AtomicU64>,
-    store_all_peerinfo: bool,
 }
 
 impl<TRepoTypes: RepoTypes> IpfsFuture<TRepoTypes> {
@@ -2064,6 +2052,11 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                     },
                     SwarmEvent::Behaviour(BehaviourEvent::Identify(event)) => match event {
                         IdentifyEvent::Received { peer_id, info } => {
+                            self.swarm
+                                .behaviour_mut()
+                                .swarm
+                                .inject_identify_info(peer_id, info.clone());
+
                             let IdentifyInfo {
                                 listen_addrs,
                                 protocols,
@@ -2100,17 +2093,6 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                                     let mut counter = self.autonat_counter.load(Ordering::Relaxed);
                                     counter += 1;
                                     self.autonat_counter.store(counter, Ordering::Relaxed);
-                                }
-                            }
-                            let store_all_peerinfo = self.store_all_peerinfo;
-                            match self.identity_registry.entry(peer_id) {
-                                Entry::Occupied(mut entry) => {
-                                    *entry.get_mut() = Some(info.into());
-                                }
-                                Entry::Vacant(entry) => {
-                                    if store_all_peerinfo {
-                                        entry.insert(Some(info.into()));
-                                    }
                                 }
                             }
                         }
@@ -2293,13 +2275,15 @@ impl<TRepoTypes: RepoTypes> Future for IpfsFuture<TRepoTypes> {
                         let _ = ret.send(peers);
                     }
                     IpfsEvent::FindPeerIdentity(peer_id, local_only, ret) => {
-                        let locally_known = match self.identity_registry.entry(peer_id) {
-                            Entry::Occupied(entry) => entry.get().clone(),
-                            Entry::Vacant(entry) => {
-                                entry.insert(None);
-                                None
-                            }
-                        };
+                        let locally_known = self
+                            .swarm
+                            .behaviour()
+                            .swarm
+                            .peers()
+                            .find(|(k, _)| peer_id.eq(k))
+                            .and_then(|(_, v)| v.clone())
+                            .map(|v| v.into());
+
                         let addrs = if locally_known.is_some() || local_only {
                             Either::Left(locally_known)
                         } else {
