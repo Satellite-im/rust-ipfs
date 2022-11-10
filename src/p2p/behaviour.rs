@@ -330,7 +330,7 @@ impl Behaviour {
         #[cfg(feature = "external-gossipsub-stream")]
         let pubsub = {
             let config = libp2p::gossipsub::GossipsubConfigBuilder::default()
-                .max_transmit_size(512 * 1024)
+                .max_transmit_size(4 * 1024 * 1024)
                 .build()
                 .map_err(|e| anyhow::anyhow!("{}", e))?;
             let gossipsub = libp2p::gossipsub::Gossipsub::new(
