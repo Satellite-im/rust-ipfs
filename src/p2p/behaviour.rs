@@ -19,7 +19,10 @@ use libp2p::core::{Multiaddr, PeerId};
 use libp2p::dcutr::behaviour::{Behaviour as Dcutr, Event as DcutrEvent};
 use libp2p::gossipsub::{GossipsubEvent, MessageAuthenticity};
 use libp2p::identify::{Behaviour as Identify, Config as IdentifyConfig, Event as IdentifyEvent};
-use libp2p::kad::record::{store::MemoryStore, Record};
+use libp2p::kad::record::{
+    store::{MemoryStore, MemoryStoreConfig},
+    Record,
+};
 use libp2p::kad::{Kademlia, KademliaConfig, KademliaEvent};
 use libp2p::mdns::{MdnsConfig, MdnsEvent, TokioMdns as Mdns};
 use libp2p::ping::{Behaviour as Ping, Event as PingEvent};
@@ -271,6 +274,11 @@ pub enum RateLimit {
     },
 }
 
+#[derive(Default, Clone, Debug)]
+pub struct KadStoreConfig {
+    pub memory: Option<MemoryStoreConfig>,
+}
+
 impl Behaviour {
     /// Create a Kademlia behaviour with the IPFS bootstrap nodes.
     pub async fn new(options: SwarmOptions) -> Result<(Self, Option<ClientTransport>), Error> {
@@ -287,7 +295,14 @@ impl Behaviour {
         }
         .into();
 
-        let store = MemoryStore::new(options.peer_id.to_owned());
+        let store = MemoryStore::with_config(
+            options.peer_id.to_owned(),
+            options
+                .kad_store_config
+                .unwrap_or_default()
+                .memory
+                .unwrap_or_default(),
+        );
 
         let mut kad_config = match options.kad_config.clone() {
             Some(config) => config,
